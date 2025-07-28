@@ -153,11 +153,14 @@ backend:
     file: "typing_routes.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Implemented detailed statistics including average time, best time, WPM calculations, theme-based grouping, and global leaderboard functionality."
+      - working: true
+        agent: "main"
+        comment: "Statistics API fully functional. Calculates correct averages (1070ms avg from 890ms and 1250ms), best/worst times, WPM averages (60.56 avg), theme grouping, and handles empty sessions after clear."
 
   - task: "MongoDB Models"
     implemented: true
