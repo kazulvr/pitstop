@@ -10,6 +10,8 @@ from typing import List
 import uuid
 from datetime import datetime
 
+# Import typing routes
+from typing_routes import router as typing_router
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,7 +40,7 @@ class StatusCheckCreate(BaseModel):
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Typing Speed Test API - Ready! 🚀"}
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
@@ -52,8 +54,9 @@ async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
 
-# Include the router in the main app
+# Include the routers in the main app
 app.include_router(api_router)
+app.include_router(typing_router)
 
 app.add_middleware(
     CORSMiddleware,
