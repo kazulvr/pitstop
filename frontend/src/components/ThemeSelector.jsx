@@ -1,9 +1,33 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { WORD_THEMES } from '../mock/wordData';
+import { useTypingAPI } from '../hooks/useTypingAPI';
 
 const ThemeSelector = ({ currentTheme, onThemeChange, language }) => {
-  const themes = Object.keys(WORD_THEMES);
+  const [themes, setThemes] = useState({});
+  const { getThemes } = useTypingAPI();
+
+  useEffect(() => {
+    const fetchThemes = async () => {
+      try {
+        const themesData = await getThemes();
+        setThemes(themesData);
+      } catch (error) {
+        console.error('Error loading themes:', error);
+        // Fallback themes
+        setThemes({
+          fruits: { en: 'Fruits', es: 'Frutas' },
+          colors: { en: 'Colors', es: 'Colores' },
+          animals: { en: 'Animals', es: 'Animales' },
+          objects: { en: 'Objects', es: 'Objetos' },
+          random: { en: 'Random Mix', es: 'Mezcla Aleatoria' }
+        });
+      }
+    };
+
+    fetchThemes();
+  }, [getThemes]);
+
+  const themeKeys = Object.keys(themes);
 
   return (
     <div className="retro-panel p-6 mb-6">
@@ -11,7 +35,7 @@ const ThemeSelector = ({ currentTheme, onThemeChange, language }) => {
         {language === 'es' ? '🎯 Elige tu tema' : '🎯 Choose your theme'}
       </h3>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {themes.map((theme) => (
+        {themeKeys.map((theme) => (
           <Button
             key={theme}
             variant={currentTheme === theme ? 'default' : 'outline'}
@@ -26,7 +50,7 @@ const ThemeSelector = ({ currentTheme, onThemeChange, language }) => {
               backdropFilter: 'blur(10px)'
             }}
           >
-            {WORD_THEMES[theme][language]}
+            {themes[theme] && themes[theme][language] ? themes[theme][language] : theme}
           </Button>
         ))}
       </div>

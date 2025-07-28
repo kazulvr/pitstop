@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { getRandomWord } from '../mock/wordData';
+import { useTypingAPI } from '../hooks/useTypingAPI';
 
 const TypingTest = ({ theme, language }) => {
   const [currentWord, setCurrentWord] = useState(null);
@@ -11,22 +11,53 @@ const TypingTest = ({ theme, language }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [results, setResults] = useState([]);
   const [gameStarted, setGameStarted] = useState(false);
+  const [stats, setStats] = useState(null);
   const inputRef = useRef(null);
 
-  const generateNewWord = () => {
-    const word = getRandomWord(theme, language);
-    setCurrentWord(word);
-    setUserInput('');
-    setStartTime(null);
-    setEndTime(null);
-    setIsTyping(false);
+  const { 
+    getRandomWord, 
+    saveResult, 
+    getSessionResults, 
+    getSessionStats, 
+    clearSessionData,
+    loading,
+    error,
+    sessionId
+  } = useTypingAPI();
+
+  const generateNewWord = async () => {
+    try {
+      const word = await getRandomWord(theme, language);
+      setCurrentWord(word);
+      setUserInput('');
+      setStartTime(null);
+      setEndTime(null);
+      setIsTyping(false);
+    } catch (error) {
+      console.error('Error generating word:', error);
+    }
+  };
+
+  const loadResults = async () => {
+    try {
+      const sessionResults = await getSessionResults(10);
+      setResults(sessionResults);
+      
+      const sessionStats = await getSessionStats();
+      setStats(sessionStats);
+    } catch (error) {
+      console.error('Error loading results:', error);
+    }
   };
 
   useEffect(() => {
-    generateNewWord();
-  }, [theme, language]);
+    if (gameStarted && sessionId) {
+      generateNewWord();
+      loadResults();
+    }
+  }, [theme, language, gameStarted, sessionId]);
 
-  const handleInputChange = (e) => {
+  const handleInputChange = async (e) => {
     const value = e.target.value;
     setUserInput(value);
 
@@ -35,38 +66,75 @@ const TypingTest = ({ theme, language }) => {
       setIsTyping(true);
     }
 
-    if (value === currentWord.word) {
+    if (value === currentWord?.word) {
       const endTime = Date.now();
       setEndTime(endTime);
       const timeTaken = endTime - startTime;
       
-      const newResult = {
-        word: currentWord.word,
-        icon: currentWord.icon,
-        time: timeTaken,
-        timestamp: new Date().toLocaleTimeString()
-      };
-      
-      setResults(prev => [...prev, newResult]);
-      
-      // Auto-generate new word after 2 seconds
-      setTimeout(() => {
-        generateNewWord();
-      }, 2000);
+      try {
+        // Save result to backend
+        const savedResult = await saveResult(currentWord, timeTaken);
+        
+        // Update local results
+        setResults(prev => [savedResult, ...prev.slice(0, 9)]);
+        
+        // Update stats
+        const updatedStats = await getSessionStats();
+        setStats(updatedStats);
+        
+        // Auto-generate new word after 2 seconds
+        setTimeout(() => {
+          generateNewWord();
+        }, 2000);
+      } catch (error) {
+        console.error('Error saving result:', error);
+        // Still continue with local state update
+        const localResult = {
+          word: currentWord.word,
+          icon: currentWord.icon,
+          time_ms: timeTaken,
+          wpm: calculateWPM(currentWord.word, timeTaken),
+          timestamp: new Date().toISOString()
+        };
+        setResults(prev => [localResult, ...prev.slice(0, 9)]);
+        
+        setTimeout(() => {
+          generateNewWord();
+        }, 2000);
+      }
     }
   };
 
-  const startGame = () => {
+  const calculateWPM = (word, timeMs) => {
+    if (timeMs <= 0) return 0;
+    const characters = word.length;
+    const words = characters / 5;
+    const minutes = timeMs / (1000 * 60);
+    return Math.round((words / minutes) * 100) / 100;
+  };
+
+  const startGame = async () => {
     setGameStarted(true);
     setResults([]);
-    generateNewWord();
+    setStats(null);
+    await generateNewWord();
     inputRef.current?.focus();
   };
 
-  const resetGame = () => {
-    setGameStarted(false);
-    setResults([]);
-    generateNewWord();
+  const resetGame = async () => {
+    try {
+      await clearSessionData();
+      setGameStarted(false);
+      setResults([]);
+      setStats(null);
+      await generateNewWord();
+    } catch (error) {
+      console.error('Error resetting game:', error);
+      // Still reset local state
+      setGameStarted(false);
+      setResults([]);
+      setStats(null);
+    }
   };
 
   if (!gameStarted) {
@@ -83,16 +151,36 @@ const TypingTest = ({ theme, language }) => {
         </p>
         <Button
           onClick={startGame}
+          disabled={loading}
           className="retro-start-button text-lg font-bold px-8 py-4"
           style={{
-            background: 'linear-gradient(135deg, #ff6b9d, #4ecdc4)',
+            background: loading 
+              ? 'rgba(255, 255, 255, 0.3)' 
+              : 'linear-gradient(135deg, #ff6b9d, #4ecdc4)',
             border: 'none',
             color: 'white',
             boxShadow: '0 8px 25px rgba(255, 107, 157, 0.3)'
           }}
         >
-          {language === 'es' ? '🚀 ¡Comenzar!' : '🚀 Start!'}
+          {loading 
+            ? '⏳ Cargando...' 
+            : (language === 'es' ? '🚀 ¡Comenzar!' : '🚀 Start!')
+          }
         </Button>
+        {error && (
+          <p className="text-red-300 mt-4 text-sm">
+            {language === 'es' ? 'Error: ' : 'Error: '}{error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (loading && !currentWord) {
+    return (
+      <div className="text-center retro-panel p-8">
+        <div className="animate-spin text-4xl mb-4">⚡</div>
+        <p>{language === 'es' ? 'Cargando palabra...' : 'Loading word...'}</p>
       </div>
     );
   }
@@ -138,7 +226,7 @@ const TypingTest = ({ theme, language }) => {
               boxShadow: '0 4px 15px rgba(255, 217, 61, 0.3)'
             }}
             autoComplete="off"
-            disabled={endTime !== null}
+            disabled={endTime !== null || loading}
           />
           
           {/* Typing indicator */}
@@ -159,13 +247,19 @@ const TypingTest = ({ theme, language }) => {
         {/* Current time display */}
         {endTime && (
           <div className="mt-4 retro-time-display">
-            <p className="text-xl font-bold" style={{ color: currentWord.color }}>
+            <p className="text-xl font-bold" style={{ color: currentWord?.color }}>
               {language === 'es' ? '⏱️ Tiempo: ' : '⏱️ Time: '}
               <span className="text-2xl">
                 {endTime - startTime}ms
               </span>
               <span className="text-lg opacity-70 ml-2">
                 ({((endTime - startTime) / 1000).toFixed(2)}s)
+              </span>
+            </p>
+            <p className="text-lg mt-2">
+              {language === 'es' ? '🚀 WPM: ' : '🚀 WPM: '}
+              <span className="text-xl font-bold text-green-400">
+                {calculateWPM(currentWord?.word || '', endTime - startTime)}
               </span>
             </p>
           </div>
@@ -177,7 +271,7 @@ const TypingTest = ({ theme, language }) => {
         <div className="retro-panel p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-bold retro-title">
-              {language === 'es' ? '📊 Resultados' : '📊 Results'}
+              {language === 'es' ? '📊 Resultados Recientes' : '📊 Recent Results'}
             </h3>
             <Button
               onClick={resetGame}
@@ -187,13 +281,14 @@ const TypingTest = ({ theme, language }) => {
                 border: '2px solid #ff6b9d',
                 color: '#ff6b9d'
               }}
+              disabled={loading}
             >
               {language === 'es' ? '🔄 Reiniciar' : '🔄 Reset'}
             </Button>
           </div>
           
           <div className="grid gap-3 max-h-60 overflow-y-auto">
-            {results.slice(-5).reverse().map((result, index) => (
+            {results.slice(0, 5).map((result, index) => (
               <div 
                 key={index} 
                 className="retro-result-item flex items-center justify-between p-3"
@@ -208,22 +303,52 @@ const TypingTest = ({ theme, language }) => {
                   <span className="font-bold">{result.word}</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-bold text-lg">{result.time}ms</div>
-                  <div className="text-sm opacity-70">{result.timestamp}</div>
+                  <div className="font-bold text-lg">{result.time_ms}ms</div>
+                  <div className="text-sm opacity-70">
+                    {result.wpm} WPM
+                  </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Average time */}
-          {results.length >= 3 && (
+          {/* Statistics */}
+          {stats && stats.total_words >= 3 && (
             <div className="mt-4 text-center p-3 retro-stats">
-              <p className="font-bold text-lg">
-                {language === 'es' ? '📈 Promedio: ' : '📈 Average: '}
-                <span className="text-xl" style={{ color: '#4ecdc4' }}>
-                  {Math.round(results.reduce((sum, r) => sum + r.time, 0) / results.length)}ms
-                </span>
-              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="font-bold text-lg" style={{ color: '#4ecdc4' }}>
+                    {stats.total_words}
+                  </p>
+                  <p className="opacity-70">
+                    {language === 'es' ? 'Palabras' : 'Words'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold text-lg" style={{ color: '#4ecdc4' }}>
+                    {Math.round(stats.average_time_ms)}ms
+                  </p>
+                  <p className="opacity-70">
+                    {language === 'es' ? 'Promedio' : 'Average'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold text-lg" style={{ color: '#4ecdc4' }}>
+                    {stats.best_time_ms}ms
+                  </p>
+                  <p className="opacity-70">
+                    {language === 'es' ? 'Mejor' : 'Best'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold text-lg" style={{ color: '#4ecdc4' }}>
+                    {stats.best_wpm}
+                  </p>
+                  <p className="opacity-70">
+                    {language === 'es' ? 'WPM Máx' : 'Max WPM'}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </div>
